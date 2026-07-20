@@ -1,0 +1,33 @@
+version: 2
+
+project_name: outbox
+
+builds:
+  - id: outbox
+    main: ./cmd/outbox
+    binary: outbox
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - ids:
+      - outbox
+    formats:
+      - binary
+    name_template: "outbox_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
