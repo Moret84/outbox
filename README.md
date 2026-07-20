@@ -4,6 +4,29 @@ Outbox runs shell commands for files dropped into configured directories. It is
 intended for small, self-hosted upload and ingestion workflows on macOS and
 Linux.
 
+## Installation
+
+Prebuilt binaries are published for each release. On an Apple Silicon Mac:
+
+```sh
+mkdir -p "$HOME/.local/bin"
+curl -fL \
+  https://github.com/Moret84/outbox/releases/latest/download/outbox_darwin_arm64 \
+  -o "$HOME/.local/bin/outbox"
+chmod +x "$HOME/.local/bin/outbox"
+```
+
+Other release assets are available for macOS Intel (`outbox_darwin_amd64`),
+Linux x86-64 (`outbox_linux_amd64`), and Linux ARM64
+(`outbox_linux_arm64`). Each release also includes `checksums.txt` for SHA-256
+verification.
+
+To install from source instead:
+
+```sh
+go install github.com/Moret84/outbox/cmd/outbox@latest
+```
+
 ## Current scope
 
 `run-once` scans the configured directories once. `run` scans immediately and
@@ -58,9 +81,8 @@ could observe them before the write completes.
 ## Usage
 
 ```sh
-go build -o outbox ./cmd/outbox
-./outbox run --config outbox.yaml
-./outbox run-once --config outbox.yaml
+outbox run --config outbox.yaml
+outbox run-once --config outbox.yaml
 ```
 
 Continuous mode reports individual scan errors and retries on the next pass. It
