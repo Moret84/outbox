@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Moret84/outbox/internal/config"
-	"golang.org/x/sys/unix"
 )
 
 func TestRunOnceProcessesMatchingFilesInOrderWithEnvironment(t *testing.T) {
@@ -317,14 +316,16 @@ func TestRunOnceTerminatesCommandProcessGroupOnCancellation(t *testing.T) {
 	directory := t.TempDir()
 	writeFile(t, filepath.Join(directory, "export.csv"))
 	pidPath := filepath.Join(t.TempDir(), "child.pid")
+	heartbeatPath := filepath.Join(t.TempDir(), "heartbeat")
 	t.Setenv("PID_PATH", pidPath)
+	t.Setenv("HEARTBEAT_PATH", heartbeatPath)
 
 	cfg := config.Config{Rules: []config.Rule{
 		{
 			Name:      "bank",
 			Directory: directory,
 			Patterns:  []string{"*.csv"},
-			Command:   `sh -c 'trap "" TERM; while :; do sleep 1; done' & child=$!; printf '%s' "$child" > "$PID_PATH"; wait "$child"`,
+			Command:   `sh -c 'trap "" TERM; while :; do printf x >> "$HEARTBEAT_PATH"; sleep 0.05; done' & child=$!; printf '%s' "$child" > "$PID_PATH"; wait "$child"`,
 		},
 	}}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -347,6 +348,7 @@ func TestRunOnceTerminatesCommandProcessGroupOnCancellation(t *testing.T) {
 	if pid == 0 {
 		t.Fatal("command wrote an invalid child pid")
 	}
+	waitForPath(t, heartbeatPath)
 
 	cancel()
 	select {
@@ -357,8 +359,22 @@ func TestRunOnceTerminatesCommandProcessGroupOnCancellation(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("RunOnce() did not stop after cancellation")
 	}
-	if err := unix.Kill(pid, 0); !errors.Is(err, unix.ESRCH) {
-		t.Errorf("child process %d still exists, kill error = %v", pid, err)
+	heartbeat, err := os.Stat(heartbeatPath)
+	if err != nil {
+		t.Fatalf("inspect heartbeat: %v", err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	heartbeatAfterWait, err := os.Stat(heartbeatPath)
+	if err != nil {
+		t.Fatalf("inspect heartbeat after wait: %v", err)
+	}
+	if heartbeatAfterWait.Size() != heartbeat.Size() {
+		t.Errorf(
+			"child process %d is still writing: heartbeat grew from %d to %d bytes",
+			pid,
+			heartbeat.Size(),
+			heartbeatAfterWait.Size(),
+		)
 	}
 }
 
