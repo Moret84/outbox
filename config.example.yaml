@@ -1,0 +1,25 @@
+rules:
+  - name: documents
+    directory: ~/Outbox/documents
+    patterns:
+      - "*.pdf"
+      - "*.jpg"
+      - "*.png"
+    command: |
+      curl --fail-with-body \
+        --retry 3 \
+        -H "Authorization: Bearer $UPLOAD_TOKEN" \
+        -F "file=@$FILE" \
+        "https://example.com/api/documents"
+
+  - name: bank-csv
+    directory: ~/Outbox/bank
+    patterns:
+      - "*.csv"
+    command: |
+      curl --fail-with-body \
+        --retry 3 \
+        -H "X-API-Key: $BANK_API_KEY" \
+        -F "source=example-bank" \
+        -F "file=@$FILE" \
+        "https://example.com/api/import/csv"
