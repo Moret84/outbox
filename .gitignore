@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+# Local configuration
+outbox.yaml
+
 # Editor/IDE
 # .idea/
 # .vscode/
