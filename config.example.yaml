@@ -1,3 +1,5 @@
+interval: 30s
+
 rules:
   - name: documents
     directory: ~/Outbox/documents
