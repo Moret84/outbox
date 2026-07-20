@@ -6,9 +6,8 @@ Linux.
 
 ## Current scope
 
-The first version provides a single `run-once` command. It scans each configured
-directory, runs a shell command once for every matching regular file, and
-reports a failure if any command fails.
+`run-once` scans the configured directories once. `run` scans immediately and
+then repeats after the configured interval, which defaults to 30 seconds.
 
 Commands receive these environment variables:
 
@@ -32,6 +31,8 @@ directories are resolved from the configuration file location, and paths
 starting with `~/` use the current user's home directory.
 
 ```yaml
+interval: 30s
+
 rules:
   - name: example
     directory: ~/Outbox/example
@@ -58,9 +59,13 @@ could observe them before the write completes.
 
 ```sh
 go build -o outbox ./cmd/outbox
+./outbox run --config outbox.yaml
 ./outbox run-once --config outbox.yaml
 ```
 
-Outbox exits with a non-zero status when the configuration is invalid, a
+Continuous mode reports individual scan errors and retries on the next pass. It
+stops on `SIGINT` or `SIGTERM` and releases the configuration lock.
+
+`run-once` exits with a non-zero status when the configuration is invalid, a
 directory cannot be read, or at least one command fails. Other matching files
 and rules are still processed after an individual failure.
