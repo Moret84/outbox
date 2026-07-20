@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/Moret84/outbox/internal/config"
+	"github.com/Moret84/outbox/internal/runlock"
 	"github.com/Moret84/outbox/internal/runner"
 )
 
@@ -35,13 +37,25 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return fmt.Errorf("run-once does not accept positional arguments")
 		}
 
-		cfg, err := config.Load(*configPath)
-		if err != nil {
-			return err
-		}
-
-		return runner.RunOnce(ctx, cfg, stdout, stderr)
+		return runOnce(ctx, *configPath, stdout, stderr)
 	default:
 		return fmt.Errorf("unknown command %q; usage: outbox run-once [--config path]", args[0])
 	}
+}
+
+func runOnce(ctx context.Context, configPath string, stdout, stderr io.Writer) (runErr error) {
+	lock, err := runlock.Acquire(configPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		runErr = errors.Join(runErr, lock.Close())
+	}()
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return err
+	}
+
+	return runner.RunOnce(ctx, cfg, stdout, stderr)
 }

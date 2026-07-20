@@ -20,6 +20,11 @@ Commands run sequentially through `/bin/sh`. Outbox does not modify files in
 this version: commands are responsible for deleting or moving files after a
 successful operation.
 
+Outbox takes a non-blocking lock for each configuration file. A second process
+using the same configuration exits with an error instead of processing the
+same files concurrently. The operating system releases the lock if the process
+stops unexpectedly.
+
 ## Configuration
 
 Copy `config.example.yaml` to `outbox.yaml` and adapt the rules. Relative
@@ -40,6 +45,14 @@ rules:
 ```
 
 Keep credentials in environment variables rather than in the configuration.
+
+## Adding files safely
+
+Outbox considers every matching file immediately ready for processing. Write
+new files outside the configured directory, close them, then rename them into
+the directory. The rename must stay on the same filesystem to be atomic. Do not
+copy or write large files directly into a directory scanned by Outbox, as a scan
+could observe them before the write completes.
 
 ## Usage
 
