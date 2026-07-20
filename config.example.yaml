@@ -1,3 +1,5 @@
+interval: 30s
+
 rules:
   - name: documents
     directory: ~/Outbox/documents
@@ -5,17 +7,20 @@ rules:
       - "*.pdf"
       - "*.jpg"
       - "*.png"
+    minimum_age: 10s
     command: |
       curl --fail-with-body \
         --retry 3 \
         -H "Authorization: Bearer $UPLOAD_TOKEN" \
         -F "file=@$FILE" \
         "https://example.com/api/documents"
+    on_success: delete
 
   - name: bank-csv
     directory: ~/Outbox/bank
     patterns:
       - "*.csv"
+    minimum_age: 10s
     command: |
       curl --fail-with-body \
         --retry 3 \
@@ -23,3 +28,5 @@ rules:
         -F "source=example-bank" \
         -F "file=@$FILE" \
         "https://example.com/api/import/csv"
+    on_success: archive
+    archive_directory: ~/Outbox/archive/bank

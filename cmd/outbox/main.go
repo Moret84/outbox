@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/Moret84/outbox/internal/config"
 	"github.com/Moret84/outbox/internal/runlock"
@@ -14,7 +17,9 @@ import (
 )
 
 func main() {
-	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -22,28 +27,94 @@ func main() {
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: outbox run-once [--config path]")
+		return fmt.Errorf("usage: outbox <run|run-once> [--config path]")
 	}
 
 	switch args[0] {
-	case "run-once":
-		flags := flag.NewFlagSet("run-once", flag.ContinueOnError)
+	case "run", "run-once":
+		command := args[0]
+		flags := flag.NewFlagSet(command, flag.ContinueOnError)
 		flags.SetOutput(stderr)
 		configPath := flags.String("config", "outbox.yaml", "path to the YAML configuration")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
 		if flags.NArg() != 0 {
-			return fmt.Errorf("run-once does not accept positional arguments")
+			return fmt.Errorf("%s does not accept positional arguments", command)
 		}
 
+		if command == "run" {
+			return runContinuously(ctx, *configPath, stdout, stderr)
+		}
 		return runOnce(ctx, *configPath, stdout, stderr)
 	default:
-		return fmt.Errorf("unknown command %q; usage: outbox run-once [--config path]", args[0])
+		return fmt.Errorf(
+			"unknown command %q; usage: outbox <run|run-once> [--config path]",
+			args[0],
+		)
 	}
 }
 
 func runOnce(ctx context.Context, configPath string, stdout, stderr io.Writer) (runErr error) {
+	return withConfigLock(configPath, func() error {
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			return err
+		}
+		return runner.RunOnce(ctx, cfg, stdout, stderr)
+	})
+}
+
+func runContinuously(
+	ctx context.Context,
+	configPath string,
+	stdout, stderr io.Writer,
+) error {
+	return withConfigLock(configPath, func() error {
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			return err
+		}
+
+		return runLoop(ctx, cfg.Interval.Duration, func() error {
+			return runner.RunOnce(ctx, cfg, stdout, stderr)
+		}, stderr)
+	})
+}
+
+func runLoop(
+	ctx context.Context,
+	interval time.Duration,
+	process func() error,
+	stderr io.Writer,
+) error {
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if err := process(); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			fmt.Fprintln(stderr, err)
+		}
+
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return nil
+		case <-timer.C:
+		}
+	}
+}
+
+func withConfigLock(configPath string, action func() error) (runErr error) {
 	lock, err := runlock.Acquire(configPath)
 	if err != nil {
 		return err
@@ -52,10 +123,5 @@ func runOnce(ctx context.Context, configPath string, stdout, stderr io.Writer) (
 		runErr = errors.Join(runErr, lock.Close())
 	}()
 
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		return err
-	}
-
-	return runner.RunOnce(ctx, cfg, stdout, stderr)
+	return action()
 }

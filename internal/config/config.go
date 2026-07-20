@@ -8,19 +8,49 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Rules []Rule `yaml:"rules"`
+	Interval Duration `yaml:"interval"`
+	Rules    []Rule   `yaml:"rules"`
 }
 
 type Rule struct {
-	Name      string   `yaml:"name"`
-	Directory string   `yaml:"directory"`
-	Patterns  []string `yaml:"patterns"`
-	Command   string   `yaml:"command"`
+	Name             string        `yaml:"name"`
+	Directory        string        `yaml:"directory"`
+	Patterns         []string      `yaml:"patterns"`
+	MinimumAge       Duration      `yaml:"minimum_age"`
+	Command          string        `yaml:"command"`
+	OnSuccess        SuccessAction `yaml:"on_success"`
+	ArchiveDirectory string        `yaml:"archive_directory"`
+}
+
+type SuccessAction string
+
+const (
+	SuccessKeep    SuccessAction = "keep"
+	SuccessDelete  SuccessAction = "delete"
+	SuccessArchive SuccessAction = "archive"
+
+	DefaultInterval = 30 * time.Second
+)
+
+type Duration struct {
+	time.Duration
+	set bool
+}
+
+func (duration *Duration) UnmarshalYAML(node *yaml.Node) error {
+	parsed, err := time.ParseDuration(node.Value)
+	if err != nil {
+		return fmt.Errorf("parse duration %q: %w", node.Value, err)
+	}
+	duration.Duration = parsed
+	duration.set = true
+	return nil
 }
 
 func Load(path string) (Config, error) {
@@ -52,6 +82,13 @@ func Load(path string) (Config, error) {
 }
 
 func (cfg *Config) validate(configDirectory string) error {
+	if !cfg.Interval.set {
+		cfg.Interval.Duration = DefaultInterval
+	}
+	if cfg.Interval.Duration <= 0 {
+		return errors.New("interval must be greater than zero")
+	}
+
 	if len(cfg.Rules) == 0 {
 		return errors.New("at least one rule is required")
 	}
@@ -90,6 +127,42 @@ func (cfg *Config) validate(configDirectory string) error {
 
 		if strings.TrimSpace(rule.Command) == "" {
 			return fmt.Errorf("rule %q: command is required", rule.Name)
+		}
+		if rule.MinimumAge.Duration < 0 {
+			return fmt.Errorf("rule %q: minimum_age cannot be negative", rule.Name)
+		}
+
+		if rule.OnSuccess == "" {
+			rule.OnSuccess = SuccessKeep
+		}
+		switch rule.OnSuccess {
+		case SuccessKeep, SuccessDelete:
+			if rule.ArchiveDirectory != "" {
+				return fmt.Errorf(
+					"rule %q: archive_directory requires on_success: archive",
+					rule.Name,
+				)
+			}
+		case SuccessArchive:
+			if strings.TrimSpace(rule.ArchiveDirectory) == "" {
+				return fmt.Errorf(
+					"rule %q: archive_directory is required for on_success: archive",
+					rule.Name,
+				)
+			}
+			archiveDirectory, err := resolveDirectory(rule.ArchiveDirectory, configDirectory)
+			if err != nil {
+				return fmt.Errorf("rule %q: resolve archive_directory: %w", rule.Name, err)
+			}
+			if archiveDirectory == rule.Directory {
+				return fmt.Errorf("rule %q: archive_directory must differ from directory", rule.Name)
+			}
+			rule.ArchiveDirectory = archiveDirectory
+		default:
+			return fmt.Errorf(
+				"rule %q: on_success must be keep, delete, or archive",
+				rule.Name,
+			)
 		}
 	}
 
