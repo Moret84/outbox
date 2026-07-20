@@ -52,26 +52,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 }
 
-func runOnce(ctx context.Context, configPath string, stdout, stderr io.Writer) error {
-	return withConfig(configPath, func(cfg config.Config) error {
-		return runner.RunOnce(ctx, cfg, stdout, stderr)
-	})
-}
-
-func runContinuously(
-	ctx context.Context,
-	configPath string,
-	stdout, stderr io.Writer,
-) error {
-	return withConfig(configPath, func(cfg config.Config) error {
-		process := func() error {
-			return runner.RunOnce(ctx, cfg, stdout, stderr)
-		}
-		return poll(ctx, cfg.PollInterval(), process, stderr)
-	})
-}
-
-func withConfig(configPath string, action func(config.Config) error) (runErr error) {
+func runOnce(ctx context.Context, configPath string, stdout, stderr io.Writer) (runErr error) {
 	lock, err := runlock.Acquire(configPath)
 	if err != nil {
 		return err
@@ -84,22 +65,40 @@ func withConfig(configPath string, action func(config.Config) error) (runErr err
 	if err != nil {
 		return err
 	}
-	return action(cfg)
+
+	return runner.RunOnce(ctx, cfg, stdout, stderr)
 }
 
-func poll(ctx context.Context, interval time.Duration, process func() error, stderr io.Writer) error {
+func runContinuously(
+	ctx context.Context,
+	configPath string,
+	stdout, stderr io.Writer,
+) (runErr error) {
+	lock, err := runlock.Acquire(configPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		runErr = errors.Join(runErr, lock.Close())
+	}()
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return err
+	}
+
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
-		if err := process(); err != nil {
+		if err := runner.RunOnce(ctx, cfg, stdout, stderr); err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
 			fmt.Fprintln(stderr, err)
 		}
 
-		timer := time.NewTimer(interval)
+		timer := time.NewTimer(cfg.PollInterval())
 		select {
 		case <-ctx.Done():
 			timer.Stop()
