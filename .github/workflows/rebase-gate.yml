@@ -1,0 +1,19 @@
+name: rebase-only
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  no-merge-commits:
+    name: rebase-only-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Check rebase-only history
+        uses: Moret84/gh-actions/ensure-branch-rebased@v1
+        with:
+          base-ref: ${{ github.base_ref }}
