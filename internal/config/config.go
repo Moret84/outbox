@@ -8,13 +8,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Rules []Rule `yaml:"rules"`
+	Interval string `yaml:"interval"`
+	Rules    []Rule `yaml:"rules"`
 }
+
+const DefaultInterval = 30 * time.Second
 
 type Rule struct {
 	Name      string   `yaml:"name"`
@@ -52,6 +56,14 @@ func Load(path string) (Config, error) {
 }
 
 func (cfg *Config) validate(configDirectory string) error {
+	if cfg.Interval == "" {
+		cfg.Interval = DefaultInterval.String()
+	}
+	interval, err := time.ParseDuration(cfg.Interval)
+	if err != nil || interval <= 0 {
+		return errors.New("interval must be a duration greater than zero")
+	}
+
 	if len(cfg.Rules) == 0 {
 		return errors.New("at least one rule is required")
 	}
@@ -94,6 +106,11 @@ func (cfg *Config) validate(configDirectory string) error {
 	}
 
 	return nil
+}
+
+func (cfg Config) PollInterval() time.Duration {
+	interval, _ := time.ParseDuration(cfg.Interval)
+	return interval
 }
 
 func resolveDirectory(directory, configDirectory string) (string, error) {

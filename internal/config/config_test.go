@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadResolvesRelativeDirectoryFromConfig(t *testing.T) {
@@ -26,6 +27,46 @@ rules:
 	want := filepath.Join(configDirectory, "inbox")
 	if got := cfg.Rules[0].Directory; got != want {
 		t.Errorf("Directory = %q, want %q", got, want)
+	}
+	if got := cfg.PollInterval(); got != DefaultInterval {
+		t.Errorf("PollInterval() = %s, want %s", got, DefaultInterval)
+	}
+}
+
+func TestLoadParsesInterval(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "outbox.yaml")
+	writeConfig(t, configPath, `
+interval: 2m
+rules:
+  - name: csv
+    directory: inbox
+    patterns: ["*.csv"]
+    command: process
+`)
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.PollInterval(); got != 2*time.Minute {
+		t.Errorf("PollInterval() = %s, want 2m", got)
+	}
+}
+
+func TestLoadRejectsInvalidInterval(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "outbox.yaml")
+	writeConfig(t, configPath, `
+interval: 0s
+rules:
+  - name: csv
+    directory: inbox
+    patterns: ["*.csv"]
+    command: process
+`)
+
+	_, err := Load(configPath)
+	if err == nil || !strings.Contains(err.Error(), "interval must be a duration greater than zero") {
+		t.Fatalf("Load() error = %v, want invalid interval error", err)
 	}
 }
 
