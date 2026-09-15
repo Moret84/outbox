@@ -1,8 +1,41 @@
 # outbox
 
-Outbox runs shell commands for files dropped into configured directories. It is
-intended for small, self-hosted upload and ingestion workflows on macOS and
-Linux.
+Outbox watches directories and runs a shell command for each file dropped into
+them. One directory means one destination: move a file in, and it gets sent.
+
+It is meant for small, self-hosted workflows on macOS and Linux — the kind of
+automation you would otherwise wire up with a cron job and a pile of shell
+scripts, or pay a hosted service like Zapier or Make to do for you. Outbox runs
+locally: no account, no cloud, no scheduler to configure.
+
+Typical uses:
+
+- Drop a downloaded invoice into `~/Outbox/documents` and let it upload itself
+  to your Paperless instance.
+- Keep one directory per bank, and have each statement export pushed to your
+  accounting tool as soon as you save it there.
+
+## Example
+
+```yaml
+interval: 30s
+
+rules:
+  - name: paperless
+    directory: ~/Outbox/documents
+    patterns:
+      - "*.pdf"
+    command: |
+      curl --fail-with-body --retry 3 \
+        -H "Authorization: Token $PAPERLESS_TOKEN" \
+        -F "document=@$FILE" \
+        "$PAPERLESS_URL/api/documents/post_document/" \
+        && rm "$FILE"
+```
+
+Adapt the endpoint and credentials to your own setup, then run
+`outbox run --config outbox.yaml`. See [Configuration](#configuration) for the
+full format.
 
 ## Installation
 
@@ -27,25 +60,19 @@ To install from source instead:
 go install github.com/Moret84/outbox/cmd/outbox@latest
 ```
 
-## Current scope
+## Usage
 
-`run-once` scans the configured directories once. `run` scans immediately and
-then repeats after the configured interval, which defaults to 30 seconds.
+```sh
+outbox run --config outbox.yaml
+outbox run-once --config outbox.yaml
+```
 
-Commands receive these environment variables:
+Continuous mode reports individual scan errors and retries on the next pass. It
+stops on `SIGINT` or `SIGTERM` and releases the configuration lock.
 
-- `FILE`: absolute path of the matched file.
-- `DIRECTORY`: absolute path of the configured directory.
-- `RULE`: rule name.
-
-Commands run sequentially through `/bin/sh`. Outbox does not modify files in
-this version: commands are responsible for deleting or moving files after a
-successful operation.
-
-Outbox takes a non-blocking lock for each configuration file. A second process
-using the same configuration exits with an error instead of processing the
-same files concurrently. The operating system releases the lock if the process
-stops unexpectedly.
+`run-once` exits with a non-zero status when the configuration is invalid, a
+directory cannot be read, or at least one command fails. Other matching files
+and rules are still processed after an individual failure.
 
 ## Configuration
 
@@ -70,6 +97,26 @@ rules:
 
 Keep credentials in environment variables rather than in the configuration.
 
+## How it works
+
+`run-once` scans the configured directories once. `run` scans immediately and
+then repeats after the configured interval, which defaults to 30 seconds.
+
+Commands receive these environment variables:
+
+- `FILE`: absolute path of the matched file.
+- `DIRECTORY`: absolute path of the configured directory.
+- `RULE`: rule name.
+
+Commands run sequentially through `/bin/sh`. Outbox does not modify files in
+this version: commands are responsible for deleting or moving files after a
+successful operation.
+
+Outbox takes a non-blocking lock for each configuration file. A second process
+using the same configuration exits with an error instead of processing the
+same files concurrently. The operating system releases the lock if the process
+stops unexpectedly.
+
 ## Adding files safely
 
 Outbox considers every matching file immediately ready for processing. Write
@@ -77,17 +124,3 @@ new files outside the configured directory, close them, then rename them into
 the directory. The rename must stay on the same filesystem to be atomic. Do not
 copy or write large files directly into a directory scanned by Outbox, as a scan
 could observe them before the write completes.
-
-## Usage
-
-```sh
-outbox run --config outbox.yaml
-outbox run-once --config outbox.yaml
-```
-
-Continuous mode reports individual scan errors and retries on the next pass. It
-stops on `SIGINT` or `SIGTERM` and releases the configuration lock.
-
-`run-once` exits with a non-zero status when the configuration is invalid, a
-directory cannot be read, or at least one command fails. Other matching files
-and rules are still processed after an individual failure.
