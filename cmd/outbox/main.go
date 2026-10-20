@@ -98,12 +98,42 @@ func runContinuously(
 			fmt.Fprintln(stderr, err)
 		}
 
-		timer := time.NewTimer(cfg.PollInterval())
-		select {
-		case <-ctx.Done():
-			timer.Stop()
+		var stopped bool
+		cfg, stopped = waitForValidConfig(ctx, configPath, cfg.PollInterval(), stderr)
+		if stopped {
 			return nil
-		case <-timer.C:
 		}
+	}
+}
+
+// waitForValidConfig reloads the configuration after each interval until it
+// is valid. While it is invalid no pass runs: falling back to the previous
+// configuration could keep sending files to a destination being corrected.
+func waitForValidConfig(
+	ctx context.Context,
+	configPath string,
+	interval time.Duration,
+	stderr io.Writer,
+) (cfg config.Config, stopped bool) {
+	for {
+		if !wait(ctx, interval) {
+			return config.Config{}, true
+		}
+		cfg, err := config.Load(configPath)
+		if err == nil {
+			return cfg, false
+		}
+		fmt.Fprintf(stderr, "%v; skipping pass until the configuration is fixed\n", err)
+	}
+}
+
+func wait(ctx context.Context, interval time.Duration) bool {
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }

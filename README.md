@@ -70,6 +70,11 @@ outbox run-once --config outbox.yaml
 Continuous mode reports individual scan errors and retries on the next pass. It
 stops on `SIGINT` or `SIGTERM` and releases the configuration lock.
 
+Continuous mode reloads the configuration before every pass after the first, so
+edits apply without a restart. If the edited configuration is invalid, it
+reports the error and skips passes until the file is fixed; an invalid
+configuration at startup still makes `run` exit.
+
 `run-once` exits with a non-zero status when the configuration is invalid, a
 directory cannot be read, or at least one command fails. Other matching files
 and rules are still processed after an individual failure.
